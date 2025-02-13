@@ -36,24 +36,13 @@ function showMainMenu(ctx) {
   );
 }
 
-bot.use((ctx, next) => {
-  if (admins.includes(ctx.from.username)) {
-    ctx.isAdmin = true;
-  } else {
-    ctx.isAdmin = false;
-  }
-  return next();
-});
-
-bot.start(showMainMenu);
-
-bot.hears("Отправить по воронке Премиум", async (ctx) => {
+async function sendDistribution(ctx, tariff) {
   if (!ctx.isAdmin) {
     return ctx.reply("У вас нет прав для этого действия.");
   }
 
   const users = await User.find({
-    tariff: "Премиум",
+    tariff,
     paymentCompleted: false,
   });
   console.log(users, "users");
@@ -94,55 +83,26 @@ bot.hears("Отправить по воронке Премиум", async (ctx) =
       console.error("Ошибка при отправке сообщения:", e);
     }
   }
+}
+
+bot.use((ctx, next) => {
+  if (admins.includes(ctx.from.username)) {
+    ctx.isAdmin = true;
+  } else {
+    ctx.isAdmin = false;
+  }
+  return next();
+});
+
+bot.start(showMainMenu);
+
+bot.hears("Отправить по воронке Премиум", async (ctx) => {
+  await sendDistribution(ctx, "Премиум");
   ctx.reply("Сообщение отправлено для продвинутого тарифа.");
 });
 
 bot.hears("Отправить по воронке Продвинутый", async (ctx) => {
-  if (!ctx.isAdmin) {
-    return ctx.reply("У вас нет прав для этого действия.");
-  }
-
-  const users = await User.find({
-    tariff: "Продвинутый",
-    paymentCompleted: false,
-  });
-
-  for (const user of users) {
-    try {
-      await bot.telegram.sendMediaGroup(user.chatId, [
-        {
-          type: "photo",
-          media: { source: path.resolve(__dirname, "assets/logo.jpg") },
-          caption: sendMessage,
-          parse_mode: "Markdown",
-        },
-        {
-          type: "video",
-          media: { source: path.resolve(__dirname, "assets/intro.MP4") },
-        },
-      ]);
-
-      await bot.telegram.sendMessage(
-        user.chatId,
-        "Вступай в клуб и начни зарабатывать на торговле:",
-        {
-          parse_mode: "HTML",
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: "Вступить в клуб",
-                  url: "https://t.me/CV_club_bot?start=club",
-                },
-              ],
-            ],
-          },
-        }
-      );
-    } catch (e) {
-      console.error("Ошибка при отправке сообщения:", e);
-    }
-  }
+  await sendDistribution(ctx, "Продвинутый");
   ctx.reply("Сообщение отправлено для базового тарифа.");
 });
 
