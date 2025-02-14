@@ -5,7 +5,7 @@ const cron = require("node-cron");
 const User = require("./models/User");
 const Draft = require("./models/Draft");
 const Broadcast = require("./models/Draft");
-
+const { toMarkdownV2 } = require("@telegraf/entity");
 const fs = require("fs");
 const connectDB = require("./db/connect");
 const { BOT_TOKEN } = process.env;
@@ -18,76 +18,6 @@ const bot = new Telegraf(BOT_TOKEN);
 connectDB();
 
 const admins = ["denys_kladko", "aram21m"];
-
-const emojiRegex = /\p{Emoji}/u;
-
-// Функция для экранирования спецсимволов MarkdownV2
-function escapeMarkdownV2(text) {
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/\*/g, "\\*")
-    .replace(/\_/g, "\\_")
-    .replace(/\[/g, "\\[")
-    .replace(/\]/g, "\\]")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/~/g, "\\~")
-    .replace(/`/g, "\\`")
-    .replace(/>/g, "\\>")
-    .replace(/#/g, "\\#")
-    .replace(/\+/g, "\\+")
-    .replace(/=/g, "\\=")
-    .replace(/\|/g, "\\|")
-    .replace(/{/g, "\\{")
-    .replace(/}/g, "\\}")
-    .replace(/\./g, "\\.")
-    .replace(/!/g, "\\!");
-}
-
-// Escape dashes separately after applying entities
-function escapeDashes(text) {
-  return text.replace(/(?<!\w)-|-(?!\w)/g, "\\-");
-}
-
-// Updated function for applying entities
-function applyEntities(text, entities) {
-  if (!entities) return escapeMarkdownV2(text);
-
-  // Сначала экранируем весь текст, кроме тире
-  text = escapeMarkdownV2(text);
-
-  let offsetAdjustment = 0;
-  entities.forEach((entity) => {
-    const start = entity.offset + offsetAdjustment;
-    const end = start + entity.length;
-    const entityText = text.slice(start, end);
-
-    let markdownTag = "";
-    switch (entity.type) {
-      case "bold":
-        markdownTag = "*";
-        break;
-      case "italic":
-        markdownTag = "_";
-        break;
-      case "underline":
-        markdownTag = "__";
-        break;
-      default:
-        return;
-    }
-
-    const before = text.slice(0, start);
-    const after = text.slice(end);
-
-    text = before + markdownTag + entityText + markdownTag + after;
-
-    offsetAdjustment += markdownTag.length * 2;
-  });
-
-  // Экранируем тире после обработки entities
-  return escapeDashes(text);
-}
 
 function showMainMenu(ctx) {
   const buttons = [
@@ -223,17 +153,8 @@ bot.on("message", async (ctx) => {
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     draft.media.push({ type: "photo", fileId });
     if (ctx.message.caption) {
-      console.log(ctx.message, "message");
-      console.log(ctx.message.caption, "caption");
-
-      const entities = ctx.message.caption_entities;
-
-      const markdownText = applyEntities(
-        escapeMarkdownV2(ctx.message.caption),
-        entities
-      );
-
-      draft.text = markdownText;
+      const markdownMessage = toMarkdownV2(ctx.message);
+      draft.text = markdownMessage;
     }
     await draft.save();
   } else if (ctx.message.video) {
