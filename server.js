@@ -36,7 +36,6 @@ function escapeMarkdownV2(text) {
     .replace(/>/g, "\\>")
     .replace(/#/g, "\\#")
     .replace(/\+/g, "\\+")
-    .replace(/\-/g, "\\-")  // Экранируем тире!
     .replace(/=/g, "\\=")
     .replace(/\|/g, "\\|")
     .replace(/{/g, "\\{")
@@ -45,11 +44,16 @@ function escapeMarkdownV2(text) {
     .replace(/!/g, "\\!");
 }
 
-// Функция для применения стилей с учётом entities
+// Escape dashes separately after applying entities
+function escapeDashes(text) {
+  return text.replace(/(?<!\w)-|-(?!\w)/g, "\\-");
+}
+
+// Updated function for applying entities
 function applyEntities(text, entities) {
   if (!entities) return escapeMarkdownV2(text);
 
-  // Сначала экранируем весь текст
+  // Сначала экранируем весь текст, кроме тире
   text = escapeMarkdownV2(text);
 
   let offsetAdjustment = 0;
@@ -57,9 +61,6 @@ function applyEntities(text, entities) {
     const start = entity.offset + offsetAdjustment;
     const end = start + entity.length;
     const entityText = text.slice(start, end);
-
-    // Пропускаем, если это смайлик
-    if (emojiRegex.test(entityText)) return;
 
     let markdownTag = "";
     switch (entity.type) {
@@ -76,17 +77,16 @@ function applyEntities(text, entities) {
         return;
     }
 
-    // Добавляем теги
     const before = text.slice(0, start);
     const after = text.slice(end);
 
     text = before + markdownTag + entityText + markdownTag + after;
 
-    // Обновляем смещение
     offsetAdjustment += markdownTag.length * 2;
   });
 
-  return text;
+  // Экранируем тире после обработки entities
+  return escapeDashes(text);
 }
 
 function showMainMenu(ctx) {
