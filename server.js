@@ -35,6 +35,29 @@ function showMainMenu(ctx) {
   );
 }
 
+async function selectRecipients(ctx) {
+  const users = await User.find();
+  const buttons = users.map((user) => [
+    {
+      text: user.username || `ID: ${user.chatId}`,
+      callback_data: `sendTo_${user.chatId}`,
+    },
+  ]);
+  
+  buttons.push([{ text: "Назад", callback_data: "backToMenu" }]);
+  
+  await ctx.reply(".", {
+    reply_markup: { remove_keyboard: true },
+  });
+
+  await ctx.reply("Выберите получателей:", {
+    reply_markup: {
+      inline_keyboard: buttons,
+    },
+  });
+
+}
+
 bot.use((ctx, next) => {
   if (admins.includes(ctx.from.username)) {
     ctx.isAdmin = true;
@@ -52,10 +75,8 @@ bot.hears("Рассылка", async (ctx) => {
   await Draft.deleteMany({ adminId: ctx.from.id });
 
   await Draft.create({ adminId: ctx.from.id, text: "", media: [] });
-  ctx.reply(
-    "Отправьте текст и/или медиа (фото, видео, документы).",
-    Markup.keyboard([["Отправить"]]).resize()
-  );
+
+  await ctx.reply("Добавьте файлы фото/видео и текст");
 });
 
 async function prepareToSend(ctx) {
@@ -93,7 +114,7 @@ async function sendMediaGroup(ctx, userId, broadcast) {
       };
       if (index === broadcast.media.length - 1 && broadcast.text) {
         inputMedia.caption = broadcast.text;
-        inputMedia.parse_mode = "HTML"; 
+        inputMedia.parse_mode = "HTML";
       }
       return inputMedia;
     });
@@ -105,12 +126,6 @@ async function sendMediaGroup(ctx, userId, broadcast) {
 
 bot.on("message", async (ctx) => {
   if (!ctx.isAdmin) return;
-
-  console.log(ctx.message, "message");
-
-  if (ctx.message.text === "Отправить") {
-    return prepareToSend(ctx);
-  }
 
   const draft = await Draft.findOne({ adminId: ctx.from.id });
   if (!draft) return;
@@ -143,6 +158,14 @@ bot.on("message", async (ctx) => {
     });
     await draft.save();
   }
+
+  ctx.reply(`Добавьте файлы либо нажмите на кнопку "Отправить"`, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Отправить", callback_data: "prepareToSend" }],
+      ],
+    },
+  });
 });
 
 bot.on("callback_query", async (ctx) => {
@@ -150,6 +173,10 @@ bot.on("callback_query", async (ctx) => {
   if (!broadcast) return;
 
   const data = ctx.callbackQuery.data;
+
+  if (data === "prepareToSend") {
+    return prepareToSend(ctx);
+  }
 
   if (data.startsWith("sendTo_")) {
     const userId = data.split("_")[1];
@@ -162,25 +189,11 @@ bot.on("callback_query", async (ctx) => {
     }
     await ctx.reply("Сообщение отправлено!");
 
-    const users = await User.find(); 
-    const buttons = users.map((user) => [
-      {
-        text: user.username || `ID: ${user.chatId}`,
-        callback_data: `sendTo_${user.chatId}`,
-      },
-    ]);
-
-    buttons.push([{ text: "Назад", callback_data: "backToMenu" }]);
-
-    await ctx.reply("Выберите получателей:", {
-      reply_markup: {
-        inline_keyboard: buttons,
-      },
-    });
+    selectRecipients(ctx);
   }
 
-  if(data === 'backToMenu'){
-    showMainMenu(ctx)
+  if (data === "backToMenu") {
+    showMainMenu(ctx);
   }
 
   if (data === "send_to_all") {
@@ -196,26 +209,9 @@ bot.on("callback_query", async (ctx) => {
       }
     });
     await ctx.answerCbQuery("Рассылка отправлена всем.");
-    await ctx.reply(
-      "Рассылка отправлена всем",
-      Markup.keyboard([["Назад"]]).resize()
-    );
+    await showMainMenu(ctx);
   } else if (data === "select_recipients") {
-    const users = await User.find();
-    const buttons = users.map((user) => [
-      {
-        text: user.username || `ID: ${user.chatId}`,
-        callback_data: `sendTo_${user.chatId}`,
-      },
-    ]);
-
-    buttons.push([{ text: "Назад", callback_data: "backToMenu" }]);
-
-    await ctx.reply("Выберите получателей:", {
-      reply_markup: {
-        inline_keyboard: buttons,
-      },
-    });
+    selectRecipients(ctx);
   }
 });
 
