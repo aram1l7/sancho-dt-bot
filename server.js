@@ -5,7 +5,7 @@ const cron = require("node-cron");
 const User = require("./models/User");
 const Draft = require("./models/Draft");
 const Broadcast = require("./models/Draft");
-const { toMarkdownV2 } = require("@telegraf/entity");
+const { toHTML } = require("@telegraf/entity");
 const fs = require("fs");
 const connectDB = require("./db/connect");
 const { BOT_TOKEN } = process.env;
@@ -128,7 +128,7 @@ async function sendMediaGroup(ctx, userId, broadcast) {
       };
       if (index === broadcast.media.length - 1 && broadcast.text) {
         inputMedia.caption = broadcast.text;
-        inputMedia.parse_mode = "MarkdownV2";
+        inputMedia.parse_mode = "HTML";
       }
       return inputMedia;
     });
@@ -153,8 +153,8 @@ bot.on("message", async (ctx) => {
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     draft.media.push({ type: "photo", fileId });
     if (ctx.message.caption) {
-      const markdownMessage = toMarkdownV2(ctx.message);
-      draft.text = markdownMessage;
+      const htmlMessage = toHTML(ctx.message);
+      draft.text = htmlMessage;
     }
     await draft.save();
   } else if (ctx.message.video) {
