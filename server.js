@@ -8,7 +8,6 @@ const Broadcast = require("./models/Draft");
 
 const fs = require("fs");
 const connectDB = require("./db/connect");
-const { sendMessage } = require("./static/textMessages");
 const { BOT_TOKEN } = process.env;
 
 require("dotenv").config();
@@ -79,7 +78,21 @@ bot.hears("Рассылка", async (ctx) => {
 
   await Draft.create({ adminId: ctx.from.id, text: "", media: [] });
 
-  await ctx.reply("Добавьте файлы фото/видео и текст");
+  const message = await ctx.reply("...", {
+    reply_markup: { remove_keyboard: true },
+  });
+
+  setTimeout(() => {
+    ctx.deleteMessage(message.message_id);
+  }, 0);
+
+  await ctx.reply("Добавьте файлы фото/видео и текст", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Обратно", callback_data: "backToMenu" }],
+      ],
+    },
+  });
 });
 
 async function prepareToSend(ctx) {
