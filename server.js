@@ -3,6 +3,8 @@ const express = require("express");
 const path = require("path");
 const cron = require("node-cron");
 const User = require("./models/User");
+const Draft = require("./models/Draft");
+const Broadcast = require("./models/Draft");
 
 const fs = require("fs");
 const connectDB = require("./db/connect");
@@ -25,64 +27,12 @@ function showMainMenu(ctx) {
     ["Поддержка", "Наши ресурсы"],
   ];
   if (ctx.isAdmin) {
-    buttons.push(
-      ["Отправить по воронке Премиум"],
-      ["Отправить по воронке Продвинутый"]
-    );
+    buttons.push(["Рассылка"]);
   }
   ctx.reply(
     "Добро пожаловать! Выберите опцию:",
     Markup.keyboard(buttons).resize()
   );
-}
-
-async function sendDistribution(ctx, tariff) {
-  if (!ctx.isAdmin) {
-    return ctx.reply("У вас нет прав для этого действия.");
-  }
-
-  const users = await User.find({
-    tariff,
-    paymentCompleted: false,
-  });
-  console.log(users, "users");
-
-  for (const user of users) {
-    try {
-      await bot.telegram.sendMediaGroup(user.chatId, [
-        {
-          type: "photo",
-          media: { source: path.resolve(__dirname, "assets/logo.jpg") },
-          caption: sendMessage,
-          parse_mode: "Markdown",
-        },
-        {
-          type: "video",
-          media: { source: path.resolve(__dirname, "assets/intro.MP4") },
-        },
-      ]);
-
-      await bot.telegram.sendMessage(
-        user.chatId,
-        "Вступай в клуб и начни зарабатывать на торговле:",
-        {
-          parse_mode: "HTML",
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: "Вступить в клуб",
-                  url: "https://t.me/CV_club_bot?start=club",
-                },
-              ],
-            ],
-          },
-        }
-      );
-    } catch (e) {
-      console.error("Ошибка при отправке сообщения:", e);
-    }
-  }
 }
 
 bot.use((ctx, next) => {
@@ -96,14 +46,177 @@ bot.use((ctx, next) => {
 
 bot.start(showMainMenu);
 
-bot.hears("Отправить по воронке Премиум", async (ctx) => {
-  await sendDistribution(ctx, "Премиум");
-  ctx.reply("Сообщение отправлено для продвинутого тарифа.");
+bot.hears("Рассылка", async (ctx) => {
+  if (!ctx.isAdmin) return;
+
+  await Draft.deleteMany({ adminId: ctx.from.id });
+
+  await Draft.create({ adminId: ctx.from.id, text: "", media: [] });
+  ctx.reply(
+    "Отправьте текст и/или медиа (фото, видео, документы).",
+    Markup.keyboard([["Отправить"]]).resize()
+  );
 });
 
-bot.hears("Отправить по воронке Продвинутый", async (ctx) => {
-  await sendDistribution(ctx, "Продвинутый");
-  ctx.reply("Сообщение отправлено для базового тарифа.");
+async function prepareToSend(ctx) {
+  const draft = await Draft.findOne({ adminId: ctx.from.id });
+  if (!draft) {
+    await ctx.reply("Черновик не найден. Начните с команды /broadcast.");
+    return;
+  }
+
+  await Broadcast.create({
+    text: draft.text,
+    media: draft.media,
+    sendToAll: false,
+    recipients: [],
+  });
+
+  await Draft.deleteMany({ adminId: ctx.from.id });
+
+  ctx.reply("Рассылка сохранена. Отправить всем или выбрать получателей?", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Всем", callback_data: "send_to_all" }],
+        [{ text: "Выбрать получателей", callback_data: "select_recipients" }],
+      ],
+    },
+  });
+}
+
+async function sendMediaGroup(ctx, userId, broadcast) {
+  if (broadcast.media.length > 0) {
+    const mediaGroup = broadcast.media.map((item, index) => {
+      const inputMedia = {
+        type: item.type,
+        media: item.fileId,
+      };
+      if (index === broadcast.media.length - 1 && broadcast.text) {
+        inputMedia.caption = broadcast.text;
+        inputMedia.parse_mode = "HTML"; 
+      }
+      return inputMedia;
+    });
+    await ctx.telegram.sendMediaGroup(userId, mediaGroup);
+  } else {
+    await ctx.telegram.sendMessage(userId, broadcast.text);
+  }
+}
+
+bot.on("message", async (ctx) => {
+  if (!ctx.isAdmin) return;
+
+  console.log(ctx.message, "message");
+
+  if (ctx.message.text === "Отправить") {
+    return prepareToSend(ctx);
+  }
+
+  const draft = await Draft.findOne({ adminId: ctx.from.id });
+  if (!draft) return;
+
+  if (ctx.message.text) {
+    draft.text = ctx.message.text;
+    await draft.save();
+  }
+
+  if (ctx.message.photo) {
+    const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+    draft.media.push({ type: "photo", fileId });
+    if (ctx.message.caption) {
+      draft.text = ctx.message.caption;
+    }
+    await draft.save();
+  } else if (ctx.message.video) {
+    draft.media.push({ type: "video", fileId: ctx.message.video.file_id });
+    if (ctx.message.caption) {
+      draft.text = ctx.message.caption;
+    }
+    await draft.save();
+  } else if (ctx.message.document) {
+    if (ctx.message.caption) {
+      draft.text = ctx.message.caption;
+    }
+    draft.media.push({
+      type: "document",
+      fileId: ctx.message.document.file_id,
+    });
+    await draft.save();
+  }
+});
+
+bot.on("callback_query", async (ctx) => {
+  const broadcast = await Broadcast.findOne().sort({ _id: -1 });
+  if (!broadcast) return;
+
+  const data = ctx.callbackQuery.data;
+
+  if (data.startsWith("sendTo_")) {
+    const userId = data.split("_")[1];
+    await ctx.answerCbQuery("Отправляем сообщение...");
+
+    try {
+      await sendMediaGroup(ctx, userId, broadcast);
+    } catch (err) {
+      console.error(`Ошибка при отправке пользователю ${userId}:`, err.message);
+    }
+    await ctx.reply("Сообщение отправлено!");
+
+    const users = await User.find(); 
+    const buttons = users.map((user) => [
+      {
+        text: user.username || `ID: ${user.chatId}`,
+        callback_data: `sendTo_${user.chatId}`,
+      },
+    ]);
+
+    buttons.push([{ text: "Назад", callback_data: "backToMenu" }]);
+
+    await ctx.reply("Выберите получателей:", {
+      reply_markup: {
+        inline_keyboard: buttons,
+      },
+    });
+  }
+
+  if(data === 'backToMenu'){
+    showMainMenu(ctx)
+  }
+
+  if (data === "send_to_all") {
+    const users = await User.find();
+    users.forEach(async (user) => {
+      try {
+        await sendMediaGroup(ctx, user.chatId, broadcast);
+      } catch (err) {
+        console.error(
+          `Ошибка при отправке пользователю ${user.chatId}:`,
+          err.message
+        );
+      }
+    });
+    await ctx.answerCbQuery("Рассылка отправлена всем.");
+    await ctx.reply(
+      "Рассылка отправлена всем",
+      Markup.keyboard([["Назад"]]).resize()
+    );
+  } else if (data === "select_recipients") {
+    const users = await User.find();
+    const buttons = users.map((user) => [
+      {
+        text: user.username || `ID: ${user.chatId}`,
+        callback_data: `sendTo_${user.chatId}`,
+      },
+    ]);
+
+    buttons.push([{ text: "Назад", callback_data: "backToMenu" }]);
+
+    await ctx.reply("Выберите получателей:", {
+      reply_markup: {
+        inline_keyboard: buttons,
+      },
+    });
+  }
 });
 
 bot.hears("Магазин", (ctx) => {
@@ -256,8 +369,6 @@ bot.hears("12 месяцев - 192$", async (ctx) => {
 });
 
 bot.launch();
-
-console.log("Бот запущен");
 
 cron.schedule("* * * * *", async () => {
   const now = new Date();
