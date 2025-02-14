@@ -160,12 +160,14 @@ bot.on("message", async (ctx) => {
   } else if (ctx.message.video) {
     draft.media.push({ type: "video", fileId: ctx.message.video.file_id });
     if (ctx.message.caption) {
-      draft.text = ctx.message.caption;
+      const htmlMessage = toHTML(ctx.message);
+      draft.text = htmlMessage;
     }
     await draft.save();
   } else if (ctx.message.document) {
     if (ctx.message.caption) {
-      draft.text = ctx.message.caption;
+      const htmlMessage = toHTML(ctx.message);
+      draft.text = htmlMessage;
     }
     draft.media.push({
       type: "document",
