@@ -43,19 +43,22 @@ async function selectRecipients(ctx) {
       callback_data: `sendTo_${user.chatId}`,
     },
   ]);
-  
-  buttons.push([{ text: "Назад", callback_data: "backToMenu" }]);
-  
-  await ctx.reply(".", {
+
+  buttons.push([{ text: "Главное меню", callback_data: "backToMenu" }]);
+
+  const message = await ctx.reply("...", {
     reply_markup: { remove_keyboard: true },
   });
+
+  setTimeout(() => {
+    ctx.deleteMessage(message.message_id);
+  }, 0);
 
   await ctx.reply("Выберите получателей:", {
     reply_markup: {
       inline_keyboard: buttons,
     },
   });
-
 }
 
 bot.use((ctx, next) => {
